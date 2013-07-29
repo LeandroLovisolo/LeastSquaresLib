@@ -15,4 +15,8 @@ hold on;
 scatter(X(:,1), X(:, 2));
 plot(xs, polyval(coefs, xs));
 plot(xs, polyval(coefs_sol, xs), 'color', 'red');
+legend('', 'Original distribution', 'Approximation');
+xlabel('x');
+ylabel('y');
+title(cstrcat('Least squares approximation of degree ', num2str(degree)));
 hold off;
