@@ -7,7 +7,7 @@ x = zeros(length(A), 1);
 
 i = length(A);
 
-while(i > 1)
+while(i >= 1)
 	x(i) = b(i);
 
 	j = i + 1;
