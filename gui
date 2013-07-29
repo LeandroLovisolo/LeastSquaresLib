@@ -1,0 +1,38 @@
+#!/usr/bin/env python
+
+import subprocess
+import csv
+import numpy
+import matplotlib.pyplot as plt
+
+def read_sample(csv_file):
+	points_x = []
+	points_y = []
+	with open(csv_file, 'r') as f:
+	    reader = csv.reader(f)
+	    for row in reader:
+	        points_x.append(float(row[0]))
+	        points_y.append(float(row[1]))
+	return [points_x, points_y]
+
+def read_cli_output(csv_file, degree):
+	output = subprocess.getstatusoutput('./cli ' + csv_file + ' ' + str(degree))
+	lines = output[1].splitlines()
+	coefs = []
+	for line in lines[1:]:
+		coefs.append(float(line))
+	return coefs
+
+if __name__ == '__main__':
+	points = read_sample('sample.csv')
+	coefs = read_cli_output('sample.csv', 3)
+
+	x_0 = min(points[0])
+	x_n = max(points[0])
+	step = (x_n - x_0) / 50
+	range = numpy.arange(x_0, x_n + step, step)
+
+	plt.plot(points[0], points[1], 'ro')
+	plt.plot(range, numpy.polyval(coefs, range), 'b-')
+	plt.xlim(x_0, x_n)
+	plt.show()

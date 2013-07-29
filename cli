@@ -1,0 +1,33 @@
+#!/usr/bin/octave -qf
+
+[DIR, NAME, EXT, VER] = fileparts(__FILE__);
+addpath(cstrcat(DIR, '/octave'));
+
+function usage()
+	printf('Usage: %s SAMPLE DEGREE\n', program_name());
+	printf('  SAMPLE: CSV file where the sample is stored. \n');
+	printf('          Columns 1 and 2 represent x and y coordinates, respectively.\n');
+	printf('  DEGREE: Polinomial approximation degree. Must be an integer greater than 0.\n');
+	exit(-1);
+endfunction
+
+args = argv();
+
+if(length(args) != 2)
+	usage();
+end
+
+sample = csvread(args{1});
+degree = str2num(args{2});
+
+if(degree < 1)
+	usage();
+end
+
+coefs = solve(sample, degree);
+
+printf('Polynomial coefficients (x^%d, ..., x^0):\n', degree);
+
+for i = 1:length(coefs)
+	printf('%f\n', coefs(i));
+end
