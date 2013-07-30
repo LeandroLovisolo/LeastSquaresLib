@@ -26,7 +26,7 @@ end
 
 coefs = solve(sample, degree);
 
-printf('Polynomial coefficients (x^%d, ..., x^0):\n', degree);
+printf('Polynomial coefficients (x^%d, ..., 1):\n', degree);
 
 for i = 1:length(coefs)
 	printf('%f\n', coefs(i));
