@@ -46,6 +46,9 @@ class CLI:
 
     def read_cli_output(self, csv_file, degree):
         output = commands.getstatusoutput('./cli ' + csv_file + ' ' + str(degree))
+        print('\nCLI output:')
+        print(output[1])
+
         lines = output[1].splitlines()
         coeffs = []
         for line in lines[1:]:
@@ -136,7 +139,7 @@ class GUI:
         
         # Initialize SpinButtons
         self.builder.get_object('approx_degree').set_adjustment(Gtk.Adjustment(1,  1,      100,  1,   10, 0))
-        self.builder.get_object('num_points')   .set_adjustment(Gtk.Adjustment(20, 1,      9999, 1,   10, 0))
+        self.builder.get_object('num_points')   .set_adjustment(Gtk.Adjustment(20, 2,      9999, 1,   10, 0))
         self.builder.get_object('variance')     .set_adjustment(Gtk.Adjustment(1,  0,      9999, 0.1, 1,  0))
         self.builder.get_object('min_x')        .set_adjustment(Gtk.Adjustment(-1, -9999,  9999, 0.1, 1,  0))
         self.builder.get_object('max_x')        .set_adjustment(Gtk.Adjustment(1,  -9999,  9999, 0.1, 1,  0))
@@ -151,6 +154,7 @@ class GUI:
         self.builder.get_object('dist_degree')  .set_value(self.samplegen.degree)
 
         # Set up event handling
+        self.approx_degree_event_enabled = True
         self.builder.get_object('approx_degree')    .connect('value-changed', self.on_approx_degree_change)
         self.builder.get_object('num_points')       .connect('value-changed', self.on_num_points_change)
         self.builder.get_object('variance')         .connect('value-changed', self.on_variance_change)
@@ -200,7 +204,7 @@ class GUI:
 
             # SpinButton
             spin = Gtk.SpinButton()
-            spin.set_adjustment(Gtk.Adjustment(self.samplegen.coeffs[i], -9999, 9999, 0.01, 10, 0))
+            spin.set_adjustment(Gtk.Adjustment(self.samplegen.coeffs[i], -9999, 9999, 0.01, 1, 0))
             spin.set_numeric(True)
             spin.set_digits(2)
             spin.coeff_index = i
@@ -214,9 +218,16 @@ class GUI:
     def update_plot(self, recalculate_limits=False, csv=None):
         # Load sample from CSV file if needed
         if csv != None:
-            self.sample_type = GUI.CSV_SAMPLE
-            self.csv_sample  = self.cli.read_sample(csv)
-            recalculate_limits = True
+            try:
+                self.csv_sample  = self.cli.read_sample(csv)
+                self.sample_type = GUI.CSV_SAMPLE
+                recalculate_limits = True
+            except:
+                dialog = Gtk.MessageDialog(self.window, 0, Gtk.MessageType.ERROR,
+                                           Gtk.ButtonsType.OK, "Invalid CSV file. Check format.")
+                dialog.run()
+                dialog.destroy()
+                return
 
         # Decide where the sample is coming from
         if self.sample_type == GUI.CSV_SAMPLE:
@@ -225,6 +236,16 @@ class GUI:
         else:
             points_x = self.samplegen.get_points_x()
             points_y = self.samplegen.get_points_y()
+
+        # Limit the maximum approximation degree based on the sample size
+        max_degree = len(points_x) - 1
+        self.approx_degree = min(max_degree, self.approx_degree)
+
+        # Update the approx_degree SpinButton
+        self.approx_degree_event_enabled = False
+        self.builder.get_object('approx_degree').get_adjustment().set_upper(max_degree)
+        self.builder.get_object('approx_degree').set_value(self.approx_degree)
+        self.approx_degree_event_enabled = True
 
         # Compute the least squares approximation
         coeffs = self.cli.get_coeffs(points_x, points_y, self.approx_degree)
@@ -299,8 +320,9 @@ class GUI:
         self.update_plot(recalculate_limits=recalculate_limits)
 
     def on_approx_degree_change(self, object):
-        self.approx_degree = object.get_value_as_int()
-        self.update_plot()
+        if self.approx_degree_event_enabled:
+            self.approx_degree = object.get_value_as_int()
+            self.update_plot()
 
     def on_num_points_change(self, object):
         self.samplegen.set_num_points(object.get_value_as_int())
