@@ -6,14 +6,17 @@ import csv
 import numpy
 from IPython import embed
 from gi.repository import Gtk
+import matplotlib
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_gtk3agg import FigureCanvasGTK3Agg as FigureCanvas
+from matplotlib.backends.backend_gtk3 import NavigationToolbar2GTK3 as NavigationToolbar
 
 ###############################################################################
-# CLI interaction and sample generation                                       #
+# CLI interaction                                                             #
 ###############################################################################
 
 class CLI:
+
     def __init__(self):
         pass
 
@@ -50,10 +53,11 @@ class CLI:
         return coeffs
 
 ###############################################################################
-# GUI code                                                                    #
+# Sample generation                                                           #
 ###############################################################################
 
 class SampleGenerator:
+
     def __init__(self):
         # Standard Normal Distribution samples
         self.std_samples = []
@@ -65,7 +69,7 @@ class SampleGenerator:
         self.max_x      = 10.0
 
         # Distribution parameters
-        self.coeffs = [0, 1]    # 1, x, x^2, ..., x^n
+        self.coeffs = [0, 1]    # Order: 1, x, x^2, ..., x^n
         self.set_degree(1)
 
     def set_num_points(self, num_points):
@@ -74,7 +78,7 @@ class SampleGenerator:
 
     def add_std_samples(self):
         # Add new samples if needed
-        while len(self.std_samples) < self.num_points: self.std_samples.append(numpy.random.normal(1))        
+        while len(self.std_samples) < self.num_points: self.std_samples.append(numpy.random.normal())        
 
     def regenerate_sample(self):
         self.std_samples = []
@@ -105,27 +109,38 @@ class SampleGenerator:
         coeffs.reverse()
         return coeffs
 
+###############################################################################
+# GUI code                                                                    #
+###############################################################################
+
 class GUI:
+
+    # Sample types
+    GENERATED_SAMPLE = 0
+    CSV_SAMPLE       = 1
+
     def __init__(self):
         self.approx_degree = 1
         self.cli           = CLI()
         self.samplegen     = SampleGenerator()
+        self.csv_sample    = None
+        self.sample_type   = GUI.GENERATED_SAMPLE
         self.build_interface()
 
     def build_interface(self):
         # Load main window
         self.builder = Gtk.Builder()
         self.builder.add_from_file('gui.ui')
-        window = self.builder.get_object('window1')
-        window.connect("delete-event", Gtk.main_quit)
+        self.window = self.builder.get_object('window')
+        self.window.connect('delete-event', Gtk.main_quit)
         
         # Initialize SpinButtons
-        self.builder.get_object('approx_degree').set_adjustment(Gtk.Adjustment(1,  1,      100,  1,    10, 0))
-        self.builder.get_object('num_points')   .set_adjustment(Gtk.Adjustment(20, 1,      9999, 1,    10, 0))
-        self.builder.get_object('variance')     .set_adjustment(Gtk.Adjustment(1,  0,      9999, 0.01, 1,  0))
-        self.builder.get_object('min_x')        .set_adjustment(Gtk.Adjustment(-1, -9999,  9999, 0.1,  1,  0))
-        self.builder.get_object('max_x')        .set_adjustment(Gtk.Adjustment(1,  -9999,  9999, 0.1,  1,  0))
-        self.builder.get_object('dist_degree')  .set_adjustment(Gtk.Adjustment(1,  1,      100,  1,    10, 0))
+        self.builder.get_object('approx_degree').set_adjustment(Gtk.Adjustment(1,  1,      100,  1,   10, 0))
+        self.builder.get_object('num_points')   .set_adjustment(Gtk.Adjustment(20, 1,      9999, 1,   10, 0))
+        self.builder.get_object('variance')     .set_adjustment(Gtk.Adjustment(1,  0,      9999, 0.1, 1,  0))
+        self.builder.get_object('min_x')        .set_adjustment(Gtk.Adjustment(-1, -9999,  9999, 0.1, 1,  0))
+        self.builder.get_object('max_x')        .set_adjustment(Gtk.Adjustment(1,  -9999,  9999, 0.1, 1,  0))
+        self.builder.get_object('dist_degree')  .set_adjustment(Gtk.Adjustment(1,  1,      100,  1,   10, 0))
 
         # Load initial values
         self.builder.get_object('approx_degree').set_value(self.approx_degree)
@@ -143,28 +158,35 @@ class GUI:
         self.builder.get_object('max_x')            .connect('value-changed', self.on_max_x_change)
         self.builder.get_object('regenerate_sample').connect('clicked',       self.on_regenerate_sample)
         self.builder.get_object('dist_degree')      .connect('value-changed', self.on_dist_degree_change)
+        self.builder.get_object('load_csv')         .connect('clicked',       self.on_load_csv)
+        self.builder.get_object('center')           .connect('clicked',       self.on_center)
+
+        # Configure matplotlib
+        matplotlib.rcParams['font.size'] = 8
 
         # Add matplotlib widget
         figure = Figure(figsize=(5,4), dpi=100)
         self.canvas = FigureCanvas(figure)  # a Gtk.DrawingArea
         self.canvas.set_size_request(600, 500)
-        box = self.builder.get_object('box1')
-        box.pack_start(self.canvas, True, True, 0)
+        self.builder.get_object('plot_box').pack_start(self.canvas, True, True, 0)
+        self.builder.get_object('toolbar_box').pack_start(
+            NavigationToolbar(self.canvas, self.window), False, False, 0)
 
         # Initialize plot
         self.plot = figure.add_subplot(111)
 
         # Draw initial inteface and enter main loop
         self.update_coeffs_grid()
-        self.update_plot()
-        window.show_all()
+        self.update_plot(recalculate_limits=True)
+        self.window.show_all()
         Gtk.main()
 
     def update_coeffs_grid(self):
         # Destroy old coefficients grid
-        viewport = self.builder.get_object('coeffs_viewport')
-        viewport.get_child().destroy()
+        coeffs_box = self.builder.get_object('coeffs_box')
+        coeffs_box.get_children()[0].destroy()
         grid = Gtk.Grid()
+        grid.set_row_spacing(5)
         grid.set_column_homogeneous(True)
 
         # Add GUI elements for each coefficient
@@ -178,7 +200,7 @@ class GUI:
 
             # SpinButton
             spin = Gtk.SpinButton()
-            spin.set_adjustment(Gtk.Adjustment(self.samplegen.coeffs[i], -9999, 9999, 0.1, 10, 0))
+            spin.set_adjustment(Gtk.Adjustment(self.samplegen.coeffs[i], -9999, 9999, 0.01, 10, 0))
             spin.set_numeric(True)
             spin.set_digits(2)
             spin.coeff_index = i
@@ -186,45 +208,95 @@ class GUI:
             grid.attach(spin, 1, i, 1, 1)
 
         # Add new coefficients grid
-        viewport.add(grid)
-        viewport.show_all()
+        coeffs_box.add(grid)
+        coeffs_box.show_all()
 
-    def update_plot(self):
-        points_x = self.samplegen.get_points_x()
-        points_y = self.samplegen.get_points_y()
+    def update_plot(self, recalculate_limits=False, csv=None):
+        # Load sample from CSV file if needed
+        if csv != None:
+            self.sample_type = GUI.CSV_SAMPLE
+            self.csv_sample  = self.cli.read_sample(csv)
+            recalculate_limits = True
 
+        # Decide where the sample is coming from
+        if self.sample_type == GUI.CSV_SAMPLE:
+            points_x = self.csv_sample[0]
+            points_y = self.csv_sample[1]
+        else:
+            points_x = self.samplegen.get_points_x()
+            points_y = self.samplegen.get_points_y()
+
+        # Compute the least squares approximation
         coeffs = self.cli.get_coeffs(points_x, points_y, self.approx_degree)
 
+        # Compute range used to plot the approximation and sample distribution
         x_0 = min(points_x)
         x_n = max(points_x)
         step = (x_n - x_0) / 50
         xs = numpy.arange(x_0, x_n + step, step)
 
+        # Save x and y limits if required
+        if recalculate_limits:
+            xlim = [x_0, x_n]
+            ylim = [min(points_y), max(points_y)]
+
+            for lim in [xlim, ylim]:
+                margin = (lim[1] - lim[0]) * 0.1
+                lim[0] -= margin
+                lim[1] += margin
+        else:
+            xlim = self.plot.get_xlim()
+            ylim = self.plot.get_ylim()
+
+        # List of plot legends in the same order they're rendered
+        legend = []
+
         self.plot.clear()
+        self.plot.set_title('Least squares approximation of degree ' + str(self.approx_degree))
+        
+        # Plot sample
         self.plot.plot(points_x, points_y, 'ro')
+        legend.append('Sample')
+
+        # Plot sample distribution
+        if self.sample_type == GUI.GENERATED_SAMPLE:        
+            self.plot.plot(xs, numpy.polyval(self.samplegen.get_coeffs(), xs), 'r-')
+            legend.append('Sample distribution')
+
+        # Plot least squares approximation
         self.plot.plot(xs, numpy.polyval(coeffs, xs), 'b-')
-        self.plot.plot(xs, numpy.polyval(self.samplegen.get_coeffs(), xs), 'r-')
+        legend.append('Least squares approximation')
+
+        # Add legend
+        self.plot.legend(tuple(legend), 'lower right').get_frame().set_alpha(0.5)
+
+        # Update X and Y limits
+        self.plot.set_xlim(xlim)
+        self.plot.set_ylim(ylim)
+        
+        # Refresh canvas widget
         self.canvas.queue_draw()
 
-        # coefs_dist = [-10, 5, 5, 0, 2]
-        # variance = 1
-        # points_x = numpy.arange(-1, 1, 0.01)
-        # points_y = generate_sample(points_x, coefs_dist, variance)
+        self.update_results(coeffs)
+    
+    def update_results(self, coeffs):
+        results = ''
 
-        # csv = write_sample(points_x, points_y)
-        # coefs = read_cli_output(csv.name, 3)
-        # print(coefs)
-        # csv.close()
+        i = len(coeffs) - 1
+        for coeff in coeffs:
+            results += str(coeff)
+            if i > 1:
+                results += ' * x^' + str(i) + ' +\n'
+            if i == 1:
+                results += ' * x +\n'
+            i -= 1
 
-        # x_0 = min(points_x)
-        # x_n = max(points_x)
-        # step = (x_n - x_0) / 50
-        # xs = numpy.arange(x_0, x_n + step, step)
+        self.builder.get_object('results').get_buffer().set_text(results)
 
-        # self.plot.clear()
-        # self.plot.plot(self.samplegen.get_points_x, self.samplegen.get_points_y, 'ro')
-        # self.plot.plot(xs, numpy.polyval(coefs, xs), 'b-')
-        # self.plot.plot(xs, numpy.polyval(self.samplegen.coeffs, xs), 'r-') 
+    def update_plot_with_generated_sample(self):
+        recalculate_limits = self.sample_type == GUI.CSV_SAMPLE
+        self.sample_type = GUI.GENERATED_SAMPLE
+        self.update_plot(recalculate_limits=recalculate_limits)
 
     def on_approx_degree_change(self, object):
         self.approx_degree = object.get_value_as_int()
@@ -232,74 +304,56 @@ class GUI:
 
     def on_num_points_change(self, object):
         self.samplegen.set_num_points(object.get_value_as_int())
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_variance_change(self, object):
         self.samplegen.variance = object.get_value()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_min_x_change(self, object):
         self.samplegen.min_x = object.get_value()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_max_x_change(self, object):
         self.samplegen.max_x = object.get_value()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_regenerate_sample(self, object):
         self.samplegen.regenerate_sample()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_dist_degree_change(self, object):
         self.samplegen.set_degree(object.get_value_as_int())
         self.update_coeffs_grid()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
 
     def on_coeff_change(self, object):
         self.samplegen.coeffs[object.coeff_index] = object.get_value()
-        self.update_plot()
+        self.update_plot_with_generated_sample()
+
+    def on_load_csv(self, object):
+        dialog = Gtk.FileChooserDialog("Please choose a file", self.window,
+                                       Gtk.FileChooserAction.OPEN,
+                                       (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                                        Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        csv_filter = Gtk.FileFilter()
+        csv_filter.set_name("CSV files")
+        csv_filter.add_mime_type("text/csv")
+        dialog.add_filter(csv_filter)
+
+        any_filter = Gtk.FileFilter()
+        any_filter.set_name("Any files")
+        any_filter.add_pattern("*")
+        dialog.add_filter(any_filter)
+
+        response = dialog.run()
+        if response == Gtk.ResponseType.OK:
+            self.update_plot(csv=dialog.get_filename())
+
+        dialog.destroy()
+
+    def on_center(self, object):
+        self.update_plot(recalculate_limits=True)
 
 if __name__ == '__main__':
     GUI()
-
-
-
-    # coefs_dist = [-10, 5, 5, 0, 2]
-    # variance = 1
-    # points_x = numpy.arange(-1, 1, 0.01)
-    # points_y = generate_sample(points_x, coefs_dist, variance)
-
-    # csv = write_sample(points_x, points_y)
-    # coefs = read_cli_output(csv.name, 3)
-    # print(coefs)
-    # csv.close()
-
-    # x_0 = min(points_x)
-    # x_n = max(points_x)
-    # step = (x_n - x_0) / 50
-    # range = numpy.arange(x_0, x_n + step, step)
-
-    # plt.plot(points_x, points_y, 'ro')
-    # plt.plot(range, numpy.polyval(coefs, range), 'b-')
-    # plt.plot(range, numpy.polyval(coefs_dist, range), 'r-')
-    # plt.xlim(x_0, x_n)
-
-    # axfreq = plt.axes([0.25, 0.1, 0.65, 0.03], axisbg='red')
-    # sfreq = Slider(axfreq, 'Freq', 0.1, 30.0, valinit=10)
-
-    # plt.show()
-
-
-
-    # points = read_sample('sample.csv')
-    # coefs = read_cli_output('sample.csv', 3)
-
-    # x_0 = min(points[0])
-    # x_n = max(points[0])
-    # step = (x_n - x_0) / 50
-    # range = numpy.arange(x_0, x_n + step, step)
-
-    # plt.plot(points[0], points[1], 'ro')
-    # plt.plot(range, numpy.polyval(coefs, range), 'b-')
-    # plt.xlim(x_0, x_n)
-    # plt.show()
